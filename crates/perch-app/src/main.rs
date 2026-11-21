@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use perch_core::{camera, razer, redragon};
 use rune::tok::{self, Theme, TextStyle, radius, space, type_};
-use rune::{Align, AppSpec, Color, Cx, Drag, El, Phase, Pixels, ScrollSpec, Spring, col, el, row, text};
+use rune::{Align, Anim, AppSpec, Color, Cx, Drag, El, Phase, Pixels, ScrollSpec, Spring, col, el, row, text};
 
 struct Preview {
     pixels: Pixels,
@@ -514,6 +514,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
         .key("window")
         .role("window")
         .motion(Spring::NONE)
+        .hover_motion_within(Anim::INSTANT, Anim::INSTANT)
         .fill(t.bg)
         .child(
             el()
@@ -618,11 +619,13 @@ fn sidebar(s: &App, p: Paint) -> El {
                 .h(64.0)
                 .px(14.0)
                 .radius(radius::LG)
+                .motion(Spring::NONE)
+                .hover_motion(Anim::INSTANT, Anim::INSTANT)
                 .fill(if selected { p.t.card } else { Color::TRANSPARENT })
                 .hover(p.t.hover)
                 .press(p.t.press)
                 .on_press_tx(move |s: &mut App, tx| {
-                    tx.instant();
+                    tx.instant(); tx.color_motion(Spring::NONE);
                     s.go(tab)
                 })
                 .child(
@@ -669,11 +672,13 @@ fn sidebar(s: &App, p: Paint) -> El {
         .h(44.0)
         .px(12.0)
         .radius(radius::LG)
+        .motion(Spring::NONE)
+        .hover_motion(Anim::INSTANT, Anim::INSTANT)
         .fill(if home_selected { p.t.card } else { Color::TRANSPARENT })
         .hover(p.t.hover)
         .press(p.t.press)
         .on_press_tx(|s: &mut App, tx| {
-            tx.instant();
+            tx.instant(); tx.color_motion(Spring::NONE);
             s.go(Tab::Home)
         })
         .child(
@@ -728,7 +733,7 @@ fn sidebar(s: &App, p: Paint) -> El {
                 .hover(p.t.hover)
                 .press(p.t.press)
                 .on_press_tx(|s: &mut App, tx| {
-                    tx.instant();
+                    tx.instant(); tx.color_motion(Spring::NONE);
                     s.rescan()
                 })
                 .child(text("Rescan devices").key("label").font(type_::LABEL).color(p.t.text)),
@@ -912,7 +917,7 @@ fn home_card(
         .hover(p.t.hover)
         .press(p.t.press)
         .on_press_tx(move |s: &mut App, tx| {
-            tx.instant();
+            tx.instant(); tx.color_motion(Spring::NONE);
             s.go(tab)
         })
         .child(
@@ -1227,12 +1232,14 @@ fn effect_grid(s: &App, p: Paint) -> El {
                     .h(44.0)
                     .center()
                     .radius(radius::SM)
+                    .motion(Spring::NONE)
+                    .hover_motion(Anim::INSTANT, Anim::INSTANT)
                     .fill(if selected { p.accent.alpha(0.18) } else { p.t.control_track })
                     .border(if selected { p.hair } else { 0.0 }, p.accent)
                     .hover(p.t.hover)
                     .press(p.t.press)
                     .on_press_tx(move |s: &mut App, tx| {
-                        tx.instant();
+                        tx.instant(); tx.color_motion(Spring::NONE);
                         s.key_effect = *e;
                         s.commit_keyboard();
                     })
@@ -1325,7 +1332,7 @@ fn cam_auto_row(p: Paint, c: &camera::Control) -> El {
             .focusable(true)
             .child(toggle(p, on))
             .on_press_tx(move |s: &mut App, tx| {
-                tx.instant();
+                tx.instant(); tx.color_motion(Spring::NONE);
                 let now = s.cam.iter().find(|x| x.id == id).and_then(|x| x.auto).unwrap_or(false);
                 s.commit_cam_auto(id, !now);
             }),
@@ -1347,7 +1354,7 @@ fn cam_toggle_row(p: Paint, c: &camera::Control) -> El {
             .focusable(true)
             .child(toggle(p, on))
             .on_press_tx(move |s: &mut App, tx| {
-                tx.instant();
+                tx.instant(); tx.color_motion(Spring::NONE);
                 let now = s.cam.iter().find(|x| x.id == id).map(|x| x.value != 0).unwrap_or(false);
                 s.commit_cam(id, if now { 0 } else { 1 });
             }),
@@ -1435,7 +1442,7 @@ where
                         .range_step(0.01)
                         .a11y_value(readout.clone())
                         .on_step(move |s: &mut App, steps, tx| {
-                            tx.instant();
+                            tx.instant(); tx.color_motion(Spring::NONE);
                             let v = (norm + steps as f32 * 0.01).clamp(0.0, 1.0);
                             step_set(s, v);
                             step_commit(s);
@@ -1443,7 +1450,7 @@ where
                         .size(w, h)
                         .on_drag(move |s: &mut App, d: &mut Drag, tx| match d.phase {
                             Phase::Down => {
-                                tx.instant();
+                                tx.instant(); tx.color_motion(Spring::NONE);
                                 d.data = norm;
                                 let knob = k / 2.0 + norm * travel;
                                 if (d.x - knob).abs() > k / 2.0 + 2.0 {
@@ -1455,10 +1462,10 @@ where
                                 let grab =
                                     if (d.start_x - knob).abs() <= k / 2.0 + 2.0 { d.start_x - knob } else { 0.0 };
                                 (*on_set)(s, to_value(d.x - grab));
-                                tx.instant();
+                                tx.instant(); tx.color_motion(Spring::NONE);
                             }
                             Phase::Up => {
-                                tx.instant();
+                                tx.instant(); tx.color_motion(Spring::NONE);
                                 if d.cancelled() {
                                     (*on_set)(s, d.data);
                                 } else {
@@ -1531,9 +1538,11 @@ fn segmented(
                 .size(seg, h - 2.0 * pad)
                 .center()
                 .radius(radius::SM)
+                .motion(Spring::NONE)
+                .hover_motion(Anim::INSTANT, Anim::INSTANT)
                 .hover(if is { Color::TRANSPARENT } else { p.t.hover })
                 .on_press_tx(move |s: &mut App, tx| {
-                    tx.instant();
+                    tx.instant(); tx.color_motion(Spring::NONE);
                     on(s, i)
                 })
                 .child(
@@ -1596,7 +1605,7 @@ fn swatch_row(p: Paint, key: &str, label: &str, current: [u8; 3], on: fn(&mut Ap
                 .border(p.hair, Color::BLACK.alpha(0.12))
                 .hover(p.t.hover)
                 .on_press_tx(move |s: &mut App, tx| {
-                    tx.instant();
+                    tx.instant(); tx.color_motion(Spring::NONE);
                     on(s, rgb)
                 }),
         );
@@ -1679,7 +1688,7 @@ fn poll(s: &mut App, _t: f64, _tx: &mut rune::Tx) -> bool {
 fn main() {
     let _ = rune::set_app_icon(include_bytes!("../assets/logo.png").to_vec());
     perch_core::window::polish_titlebar();
-    rune::run(AppSpec::<App> {
+    let spec = AppSpec::<App> {
         scenes: &[
             ("default", |_| {}),
             ("home", |s| s.tab = Tab::Home),
@@ -1692,7 +1701,22 @@ fn main() {
         setup: Some(setup),
         poll: Some(poll),
         ..AppSpec::new("Perch", WINDOW, init, view)
-    });
+    };
+    let mut app = rune::App::new(spec);
+    if let Some(place) = perch_core::window::placement(WINDOW) {
+        // A window on the faster display must render on the GPU that drives it: Rune
+        // otherwise takes the integrated GPU behind the primary display, and every
+        // frame is then presented across adapters at the primary's 60 Hz.
+        if place.prefer_discrete && std::env::var_os("WGPU_POWER_PREF").is_none() {
+            std::env::set_var("WGPU_POWER_PREF", "high");
+        }
+        app = app.window_options(rune::WindowOptions {
+            position: Some((place.x, place.y)),
+            physical_size: Some((place.width, place.height)),
+            ..Default::default()
+        });
+    }
+    app.run();
 }
 
 #[cfg(test)]
