@@ -1,0 +1,13 @@
+[package]
+name = "perch-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "perch-app"
+path = "src/main.rs"
+
+[dependencies]
+perch-core = { path = "../perch-core" }
+rune = { path = "../../vendor/rune/crates/rune", default-features = false, features = ["accessibility", "embedded-fonts"] }
