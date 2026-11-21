@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use perch_core::{camera, razer, redragon};
-use rune::tok::{self, Theme, motion, radius, space, type_};
+use rune::tok::{self, Theme, TextStyle, motion, radius, space, type_};
 use rune::{Align, AppSpec, Color, Cx, Drag, El, Phase, Pixels, ScrollSpec, col, el, row, text};
 
 struct Preview {
@@ -174,7 +174,17 @@ fn brand(p: Paint) -> El {
     }
     m
 }
+fn grid_mark(p: Paint) -> El {
+    let mut m = el().size(18.0, 18.0).radius(5.0).fill(p.accent.alpha(0.15));
+    for (x, y) in [(4.0f32, 4.0f32), (10.0, 4.0), (4.0, 10.0), (10.0, 10.0)] {
+        m = m.child(el().size(4.0, 4.0).absolute(x, y).radius(1.5).fill(p.accent));
+    }
+    m
+}
+
 const SLIDER_W: f32 = 260.0;
+const HERO: TextStyle = TextStyle::new(28.0, 600.0);
+const CARD_TITLE: TextStyle = TextStyle::new(16.0, 600.0);
 
 const SWATCHES: [(&str, [u8; 3]); 9] = [
     ("red", [255, 0, 0]),
@@ -220,6 +230,7 @@ fn cam_label(id: camera::ControlId) -> &'static str {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
+    Home,
     Mouse,
     Keyboard,
     Camera,
@@ -248,6 +259,20 @@ struct App {
 }
 
 impl App {
+    /// Tab changes own the preview lifecycle: it only runs while the camera is
+    /// on screen, so Home and the other panels keep the window cheap.
+    fn go(&mut self, tab: Tab) {
+        if self.tab == tab {
+            return;
+        }
+        if tab == Tab::Camera {
+            self.preview.start();
+        } else {
+            self.preview.stop();
+        }
+        self.tab = tab;
+    }
+
     fn rescan(&mut self) {
         self.mouse = razer::Mouse::open().ok();
         match &self.mouse {
@@ -435,7 +460,7 @@ fn downscale(w: u32, h: u32, rgba: Vec<u8>) -> (u32, u32, Vec<u8>) {
 
 fn init() -> App {
     let mut app = App {
-        tab: Tab::Mouse,
+        tab: Tab::Home,
         status: String::new(),
         mouse: None,
         dpi: 1600,
@@ -580,16 +605,7 @@ fn sidebar(s: &App, p: Paint) -> El {
                 .fill(if selected { p.t.card } else { Color::TRANSPARENT })
                 .hover(p.t.hover)
                 .press(p.t.press)
-                .on_press(move |s: &mut App| {
-                    if s.tab != tab {
-                        if tab == Tab::Camera {
-                            s.preview.start();
-                        } else {
-                            s.preview.stop();
-                        }
-                    }
-                    s.tab = tab;
-                })
+                .on_press(move |s: &mut App| s.go(tab))
                 .child(
                     row()
                         .gap(space::S3)
@@ -624,6 +640,33 @@ fn sidebar(s: &App, p: Paint) -> El {
         );
     }
 
+    let home_selected = s.tab == Tab::Home;
+    let home = el()
+        .key("home-nav")
+        .role("tab")
+        .label("Home")
+        .checked(home_selected)
+        .focusable(true)
+        .h(44.0)
+        .px(12.0)
+        .radius(radius::LG)
+        .fill(if home_selected { p.t.card } else { Color::TRANSPARENT })
+        .hover(p.t.hover)
+        .press(p.t.press)
+        .on_press(|s: &mut App| s.go(Tab::Home))
+        .child(
+            row()
+                .gap(space::S3)
+                .center_y()
+                .child(grid_mark(p))
+                .child(
+                    text("Home")
+                        .key("name")
+                        .font(type_::BODY)
+                        .color(if home_selected { p.t.text } else { p.t.text_secondary }),
+                ),
+        );
+
     col()
         .key("sidebar")
         .w(260.0)
@@ -633,6 +676,14 @@ fn sidebar(s: &App, p: Paint) -> El {
         .gap(14.0)
         .fill(p.t.bg.alpha(0.42))
         .border(p.hair, p.t.card_border)
+        .child(
+            text("OVERVIEW")
+                .key("overview")
+                .font(type_::SECTION)
+                .color(p.t.text_secondary)
+                .ml(space::S2),
+        )
+        .child(home)
         .child(
             text("DEVICES")
                 .key("devices")
@@ -672,6 +723,16 @@ fn panel(s: &App, p: Paint) -> El {
         .scroll_edge_fade(16.0)
         .scroll(ScrollSpec { stick_bottom: false });
     body = match s.tab {
+        Tab::Home => body
+            .child(home_hero(p))
+            .child(home_cards(s, p))
+            .child(el().grow(1.0))
+            .child(
+                text("Settings are written to the device, not kept in a config file.")
+                    .key("home-note")
+                    .font(type_::SECTION)
+                    .color(p.t.text_secondary.alpha(0.7)),
+            ),
         Tab::Mouse => body
             .child(section(
                 p,
@@ -709,6 +770,156 @@ fn panel(s: &App, p: Paint) -> El {
         Tab::Camera => camera_panel(s, p),
     };
     body
+}
+
+fn home_hero(p: Paint) -> El {
+    col()
+        .key("hero")
+        .gap(7.0)
+        .pt(10.0)
+        .child(
+            text("SETUP")
+                .font(type_::SECTION.tracking(0.9))
+                .color(p.t.text_secondary),
+        )
+        .child(
+            text("Your gear, at a glance.")
+                .font(HERO.tracking(-0.2))
+                .color(p.t.text),
+        )
+        .child(
+            text("Pick a device to tune it. Every change is applied as you make it.")
+                .font(type_::BODY)
+                .color(p.t.text_secondary),
+        )
+}
+
+fn home_cards(s: &App, p: Paint) -> El {
+    let mouse_stats = if s.mouse.is_some() {
+        format!("{} DPI · {} Hz", s.dpi, s.polling)
+    } else {
+        "—".into()
+    };
+    let key_stats = if s.keyboard.is_some() {
+        format!("{} · speed {}/4", s.key_effect.name(), s.key_speed)
+    } else {
+        "—".into()
+    };
+    let cam_stats = if s.camera.is_some() {
+        let auto = s
+            .cam_control(camera::ControlId::Exposure)
+            .and_then(|c| c.auto)
+            .unwrap_or(false);
+        format!(
+            "{} controls · {}",
+            s.cam.len(),
+            if auto { "auto exposure" } else { "manual exposure" }
+        )
+    } else {
+        "—".into()
+    };
+    let cam_name = s
+        .camera
+        .as_ref()
+        .map(|c| c.name.clone())
+        .unwrap_or_else(|| "Brio 100".into());
+
+    row()
+        .key("home-cards")
+        .gap(12.0)
+        .w_full()
+        .child(home_card(
+            p,
+            Tab::Mouse,
+            "home-mouse",
+            "MOUSE",
+            "DeathAdder Essential".into(),
+            s.mouse.is_some(),
+            mouse_stats,
+        ))
+        .child(home_card(
+            p,
+            Tab::Keyboard,
+            "home-keyboard",
+            "KEYBOARD",
+            "K616 Fizz Pro".into(),
+            s.keyboard.is_some(),
+            key_stats,
+        ))
+        .child(home_card(
+            p,
+            Tab::Camera,
+            "home-camera",
+            "CAMERA",
+            cam_name,
+            s.camera.is_some(),
+            cam_stats,
+        ))
+}
+
+fn home_card(
+    p: Paint,
+    tab: Tab,
+    key: &str,
+    kind: &str,
+    name: String,
+    connected: bool,
+    stats: String,
+) -> El {
+    let action = match tab {
+        Tab::Mouse => "Open mouse settings",
+        Tab::Keyboard => "Open keyboard settings",
+        Tab::Camera => "Open camera settings",
+        Tab::Home => "Home",
+    };
+    col()
+        .key(key)
+        .role("button")
+        .label(action)
+        .focusable(true)
+        .grow(1.0)
+        .h(188.0)
+        .padding(16.0)
+        .gap(6.0)
+        .radius(radius::LG)
+        .fill(p.t.card)
+        .border(p.hair, p.t.card_border)
+        .hover(p.t.hover)
+        .press(p.t.press)
+        .on_press(move |s: &mut App| s.go(tab))
+        .child(
+            text(kind)
+                .font(type_::SECTION.tracking(0.9))
+                .color(p.t.text_secondary),
+        )
+        .child(text(name).font(CARD_TITLE).color(p.t.text))
+        .child(
+            row()
+                .gap(6.0)
+                .center_y()
+                .child(
+                    el()
+                        .size(6.0, 6.0)
+                        .radius(3.0)
+                        .fill(if connected {
+                            swatch([52, 199, 89])
+                        } else {
+                            p.t.text_secondary.alpha(0.35)
+                        }),
+                )
+                .child(
+                    text(if connected { "Connected" } else { "Not found" })
+                        .font(type_::LABEL)
+                        .color(p.t.text_secondary),
+                ),
+        )
+        .child(
+            text(stats)
+                .font(type_::LABEL)
+                .color(p.t.text_secondary.alpha(0.85)),
+        )
+        .child(el().grow(1.0))
+        .child(text(action).font(type_::LABEL).color(p.accent))
 }
 
 
@@ -1432,6 +1643,8 @@ fn main() {
     rune::run(AppSpec::<App> {
         scenes: &[
             ("default", |_| {}),
+            ("home", |s| s.tab = Tab::Home),
+            ("mouse", |s| s.tab = Tab::Mouse),
             ("keyboard", |s| s.tab = Tab::Keyboard),
             ("camera", |s| s.tab = Tab::Camera),
         ],
@@ -1450,7 +1663,7 @@ mod tests {
     /// No hardware: every commit path short-circuits with "not connected".
     fn detached() -> App {
         App {
-            tab: Tab::Mouse,
+            tab: Tab::Home,
             status: String::new(),
             mouse: None,
             dpi: 1600,
@@ -1500,6 +1713,10 @@ mod tests {
     fn the_dpi_slider_reaches_the_low_end() {
         let mut rt = rune::Runtime::new(detached(), view, WINDOW, rune::Env::new(true, 1.0));
         rt.frame(0.0);
+        let (px, py) = rt.find("DeathAdder Essential").unwrap();
+        rt.pointer_down(px, py);
+        rt.pointer_up(px, py);
+        rt.frame(1.0 / 60.0);
         let (x, y) = rt.find("dpi-handle").unwrap();
         rt.pointer_down(x - 118.0, y);
         rt.frame(1.0 / 60.0);
@@ -1520,5 +1737,23 @@ mod tests {
         rt.pointer_up(x, y);
         rt.frame(1.0 / 60.0);
         assert_eq!(rt.state.key_color, [0, 0, 255]);
+    }
+
+    #[test]
+    fn home_opens_the_device_it_names() {
+        let mut rt = rune::Runtime::new(detached(), view, WINDOW, rune::Env::new(true, 1.0));
+        rt.frame(0.0);
+        assert_eq!(rt.state.tab, Tab::Home, "the app lands on Home");
+        let (x, y) = rt.find("home-keyboard").unwrap();
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.state.tab, Tab::Keyboard);
+
+        let (x, y) = rt.find("home-nav").unwrap();
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(1.0 / 60.0);
+        assert_eq!(rt.state.tab, Tab::Home);
     }
 }

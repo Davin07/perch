@@ -64,7 +64,7 @@ crates/perch-core/
   redragon.rs   captured 1032-byte firmware-effect bursts, colour at block 1[29..31]
   camera.rs     DirectShow IAMVideoProcAmp / IAMCameraControl
 crates/perch-cli/   `perch`
-crates/perch-app/   Rune window (sidebar + per-device panels)
+crates/perch-app/   Rune window (home, sidebar, per-device panels)
 docs/                rendered panels
 ```
 
@@ -98,6 +98,7 @@ Protocol notes that matter:
 - UVC control model: DirectShow; [OpenLogi](https://github.com/AprilNEA/OpenLogi)
   (Apache-2.0/MIT) covers the same ground if you want an existing camera panel.
 
+![Home](docs/ui-home.png)
 ![Mouse panel](docs/ui-mouse.png)
 ![Keyboard panel](docs/ui-keyboard.png)
 ![Camera panel](docs/ui-camera.png)
