@@ -87,7 +87,7 @@ Protocol notes that matter:
 
 ## Credits
 
-- Backdrop: generated procedurally by `scripts/backdrop.py`.
+- Backdrop: generated procedurally by `scripts/backdrop.py` (nightfall variant).
 - Type: [Geist](https://github.com/vercel/geist-font) (OFL).
 - Effect templates and protocol notes: see `THIRD_PARTY.md`.
 
