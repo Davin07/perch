@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use perch_core::{camera, razer, redragon};
-use rune::tok::{self, Theme, TextStyle, motion, radius, space, type_};
+use rune::tok::{self, Theme, TextStyle, radius, space, type_};
 use rune::{Align, AppSpec, Color, Cx, Drag, El, Phase, Pixels, ScrollSpec, col, el, row, text};
 
 struct Preview {
@@ -67,13 +67,11 @@ impl Preview {
                     return;
                 }
             };
-            let target = std::time::Duration::from_millis(1000 / fps.max(1) as u64);
             let mut warmup = 2u32;
             let mut announced = false;
             let mut shown = 0u32;
             let mut window = std::time::Instant::now();
             while !stop.load(Ordering::Relaxed) {
-                let t0 = std::time::Instant::now();
                 match cap.frame() {
                     Ok(Some((w, h, rgba))) => {
                         cap_size.store(((w as u64) << 32) | h as u64, Ordering::Relaxed);
@@ -101,16 +99,13 @@ impl Preview {
                             }
                         }
                     }
-                    Ok(None) => {}
+                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(2)),
                     Err(e) => {
                         *error.lock().unwrap() = Some(format!("{e}"));
                         dirty.store(true, Ordering::Relaxed);
                         if let Some(wake) = &waker { wake(); }
                         return;
                     }
-                }
-                if let Some(rest) = target.checked_sub(t0.elapsed()) {
-                    std::thread::sleep(rest);
                 }
             }
         }));
@@ -625,7 +620,10 @@ fn sidebar(s: &App, p: Paint) -> El {
                 .fill(if selected { p.t.card } else { Color::TRANSPARENT })
                 .hover(p.t.hover)
                 .press(p.t.press)
-                .on_press(move |s: &mut App| s.go(tab))
+                .on_press_tx(move |s: &mut App, tx| {
+                    tx.instant();
+                    s.go(tab)
+                })
                 .child(
                     row()
                         .gap(space::S3)
@@ -673,7 +671,10 @@ fn sidebar(s: &App, p: Paint) -> El {
         .fill(if home_selected { p.t.card } else { Color::TRANSPARENT })
         .hover(p.t.hover)
         .press(p.t.press)
-        .on_press(|s: &mut App| s.go(Tab::Home))
+        .on_press_tx(|s: &mut App, tx| {
+            tx.instant();
+            s.go(Tab::Home)
+        })
         .child(
             row()
                 .gap(space::S3)
@@ -725,7 +726,10 @@ fn sidebar(s: &App, p: Paint) -> El {
                 .fill(p.t.control_track)
                 .hover(p.t.hover)
                 .press(p.t.press)
-                .on_press(|s: &mut App| s.rescan())
+                .on_press_tx(|s: &mut App, tx| {
+                    tx.instant();
+                    s.rescan()
+                })
                 .child(text("Rescan devices").key("label").font(type_::LABEL).color(p.t.text)),
         )
 }
@@ -906,7 +910,10 @@ fn home_card(
         .border(p.hair, p.t.card_border)
         .hover(p.t.hover)
         .press(p.t.press)
-        .on_press(move |s: &mut App| s.go(tab))
+        .on_press_tx(move |s: &mut App, tx| {
+            tx.instant();
+            s.go(tab)
+        })
         .child(
             text(kind)
                 .font(type_::SECTION.tracking(0.9))
@@ -1223,7 +1230,8 @@ fn effect_grid(s: &App, p: Paint) -> El {
                     .border(if selected { p.hair } else { 0.0 }, p.accent)
                     .hover(p.t.hover)
                     .press(p.t.press)
-                    .on_press(move |s: &mut App| {
+                    .on_press_tx(move |s: &mut App, tx| {
+                        tx.instant();
                         s.key_effect = *e;
                         s.commit_keyboard();
                     })
@@ -1315,7 +1323,8 @@ fn cam_auto_row(p: Paint, c: &camera::Control) -> El {
             .checked(on)
             .focusable(true)
             .child(toggle(p, on))
-            .on_press(move |s: &mut App| {
+            .on_press_tx(move |s: &mut App, tx| {
+                tx.instant();
                 let now = s.cam.iter().find(|x| x.id == id).and_then(|x| x.auto).unwrap_or(false);
                 s.commit_cam_auto(id, !now);
             }),
@@ -1336,7 +1345,8 @@ fn cam_toggle_row(p: Paint, c: &camera::Control) -> El {
             .checked(on)
             .focusable(true)
             .child(toggle(p, on))
-            .on_press(move |s: &mut App| {
+            .on_press_tx(move |s: &mut App, tx| {
+                tx.instant();
                 let now = s.cam.iter().find(|x| x.id == id).map(|x| x.value != 0).unwrap_or(false);
                 s.commit_cam(id, if now { 0 } else { 1 });
             }),
@@ -1423,15 +1433,16 @@ where
                         .range_value(f64::from(norm), 0.0, 1.0)
                         .range_step(0.01)
                         .a11y_value(readout.clone())
-                        .on_step(move |s: &mut App, steps, _| {
+                        .on_step(move |s: &mut App, steps, tx| {
+                            tx.instant();
                             let v = (norm + steps as f32 * 0.01).clamp(0.0, 1.0);
                             step_set(s, v);
                             step_commit(s);
                         })
                         .size(w, h)
-                        .motion(motion::SNAPPY)
                         .on_drag(move |s: &mut App, d: &mut Drag, tx| match d.phase {
                             Phase::Down => {
+                                tx.instant();
                                 d.data = norm;
                                 let knob = k / 2.0 + norm * travel;
                                 if (d.x - knob).abs() > k / 2.0 + 2.0 {
@@ -1446,6 +1457,7 @@ where
                                 tx.instant();
                             }
                             Phase::Up => {
+                                tx.instant();
                                 if d.cancelled() {
                                     (*on_set)(s, d.data);
                                 } else {
@@ -1519,7 +1531,10 @@ fn segmented(
                 .center()
                 .radius(radius::SM)
                 .hover(if is { Color::TRANSPARENT } else { p.t.hover })
-                .on_press(move |s: &mut App| on(s, i))
+                .on_press_tx(move |s: &mut App, tx| {
+                    tx.instant();
+                    on(s, i)
+                })
                 .child(
                     text(name)
                         .key("label")
@@ -1536,7 +1551,6 @@ fn segmented(
         .padding(pad)
         .radius(radius::MD)
         .fill(p.t.control_track)
-        .motion(motion::SNAPPY)
         .child(
             el()
                 .key("indicator")
@@ -1580,7 +1594,10 @@ fn swatch_row(p: Paint, key: &str, label: &str, current: [u8; 3], on: fn(&mut Ap
                 .fill(swatch(rgb))
                 .border(p.hair, Color::BLACK.alpha(0.12))
                 .hover(p.t.hover)
-                .on_press(move |s: &mut App| on(s, rgb)),
+                .on_press_tx(move |s: &mut App, tx| {
+                    tx.instant();
+                    on(s, rgb)
+                }),
         );
     }
 
@@ -1620,7 +1637,6 @@ fn toggle(p: Paint, on: bool) -> El {
         .size(w, h)
         .radius(h / 2.0)
         .fill(if on { p.accent } else { p.t.control_off })
-        .motion(motion::SNAPPY)
         .child(
             el()
                 .key("knob")
