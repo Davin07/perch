@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use perch_core::{camera, razer, redragon};
 use rune::tok::{self, Theme, TextStyle, radius, space, type_};
-use rune::{Align, AppSpec, Color, Cx, Drag, El, Phase, Pixels, ScrollSpec, col, el, row, text};
+use rune::{Align, AppSpec, Color, Cx, Drag, El, Phase, Pixels, ScrollSpec, Spring, col, el, row, text};
 
 struct Preview {
     pixels: Pixels,
@@ -513,6 +513,7 @@ fn view(s: &App, cx: &mut Cx<App>) -> El {
     col()
         .key("window")
         .role("window")
+        .motion(Spring::NONE)
         .fill(t.bg)
         .child(
             el()
