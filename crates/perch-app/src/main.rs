@@ -69,6 +69,7 @@ impl Preview {
             };
             let target = std::time::Duration::from_millis(1000 / fps.max(1) as u64);
             let mut warmup = 2u32;
+            let mut announced = false;
             let mut shown = 0u32;
             let mut window = std::time::Instant::now();
             while !stop.load(Ordering::Relaxed) {
@@ -82,6 +83,10 @@ impl Preview {
                             measured.store((shown as f32 / elapsed).round() as u32, Ordering::Relaxed);
                             shown = 0;
                             window = std::time::Instant::now();
+                            // Re-run the view only for the label; Pixels::set wakes the
+                            // window and uploads each frame on its own.
+                            dirty.store(true, Ordering::Relaxed);
+                            if let Some(wake) = &waker { wake(); }
                         }
                         // The first frames are black while exposure settles.
                         if warmup > 0 {
@@ -89,8 +94,11 @@ impl Preview {
                         } else {
                             let (dw, dh, small) = downscale(w, h, rgba);
                             pixels.set(dw, dh, small);
-                            dirty.store(true, Ordering::Relaxed);
-                            if let Some(wake) = &waker { wake(); }
+                            if !announced {
+                                announced = true;
+                                dirty.store(true, Ordering::Relaxed);
+                                if let Some(wake) = &waker { wake(); }
+                            }
                         }
                     }
                     Ok(None) => {}
