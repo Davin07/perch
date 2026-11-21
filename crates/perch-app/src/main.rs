@@ -20,6 +20,8 @@ struct Preview {
     measured: Arc<std::sync::atomic::AtomicU32>,
     cap_size: Arc<std::sync::atomic::AtomicU64>,
     error: Arc<Mutex<Option<String>>>,
+    dirty: Arc<AtomicBool>,
+    waker: Option<rune::Waker>,
 }
 
 impl Preview {
@@ -34,6 +36,8 @@ impl Preview {
             measured: Arc::new(std::sync::atomic::AtomicU32::new(0)),
             cap_size: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             error: Arc::new(Mutex::new(None)),
+            dirty: Arc::new(AtomicBool::new(false)),
+            waker: None,
         }
     }
 
@@ -47,6 +51,8 @@ impl Preview {
         let error = self.error.clone();
         let measured = self.measured.clone();
         let cap_size = self.cap_size.clone();
+        let dirty = self.dirty.clone();
+        let waker = self.waker.clone();
         *error.lock().unwrap() = None;
         measured.store(0, Ordering::Relaxed);
         cap_size.store(0, Ordering::Relaxed);
@@ -56,36 +62,42 @@ impl Preview {
                 Ok(c) => c,
                 Err(e) => {
                     *error.lock().unwrap() = Some(format!("{e}"));
+                    dirty.store(true, Ordering::Relaxed);
+                    if let Some(wake) = &waker { wake(); }
                     return;
                 }
             };
             let target = std::time::Duration::from_millis(1000 / fps.max(1) as u64);
-            let mut last = std::time::Instant::now();
             let mut warmup = 2u32;
+            let mut shown = 0u32;
+            let mut window = std::time::Instant::now();
             while !stop.load(Ordering::Relaxed) {
                 let t0 = std::time::Instant::now();
                 match cap.frame() {
                     Ok(Some((w, h, rgba))) => {
-                        let dt = last.elapsed().as_secs_f32();
-                        if dt > 0.0 {
-                            let now = 1.0 / dt;
-                            let prev = measured.load(Ordering::Relaxed) as f32;
-                            let ema = if prev > 0.0 { prev * 0.8 + now * 0.2 } else { now };
-                            measured.store(ema.round() as u32, Ordering::Relaxed);
-                        }
-                        last = std::time::Instant::now();
                         cap_size.store(((w as u64) << 32) | h as u64, Ordering::Relaxed);
+                        shown += 1;
+                        let elapsed = window.elapsed().as_secs_f32();
+                        if elapsed >= 1.0 {
+                            measured.store((shown as f32 / elapsed).round() as u32, Ordering::Relaxed);
+                            shown = 0;
+                            window = std::time::Instant::now();
+                        }
                         // The first frames are black while exposure settles.
                         if warmup > 0 {
                             warmup -= 1;
                         } else {
                             let (dw, dh, small) = downscale(w, h, rgba);
                             pixels.set(dw, dh, small);
+                            dirty.store(true, Ordering::Relaxed);
+                            if let Some(wake) = &waker { wake(); }
                         }
                     }
                     Ok(None) => {}
                     Err(e) => {
                         *error.lock().unwrap() = Some(format!("{e}"));
+                        dirty.store(true, Ordering::Relaxed);
+                        if let Some(wake) = &waker { wake(); }
                         return;
                     }
                 }
@@ -1622,7 +1634,8 @@ fn set_dpi_norm(s: &mut App, v: f32) {
 }
 
 fn setup(s: &mut App, waker: rune::Waker) {
-    s.waker = Some(waker);
+    s.waker = Some(waker.clone());
+    s.preview.waker = Some(waker);
 }
 
 fn poll(s: &mut App, _t: f64, _tx: &mut rune::Tx) -> bool {
@@ -1630,8 +1643,9 @@ fn poll(s: &mut App, _t: f64, _tx: &mut rune::Tx) -> bool {
         let mut q = s.results.lock().unwrap();
         std::mem::take(&mut *q)
     };
+    let frame = s.preview.dirty.swap(false, Ordering::Relaxed);
     if msgs.is_empty() {
-        return false;
+        return frame;
     }
     s.status = msgs.join(" · ");
     true
